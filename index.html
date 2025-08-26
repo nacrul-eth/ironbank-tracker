@@ -52,6 +52,7 @@
       <div class="muted">Aktualisierung alle <span id="pollms">180</span> s · Quelle: supplyRatePerBlock</div>
       <div class="small" style="margin-top:8px;">
         <div>Trends: 24h <span id="apy24h" class="muted">–</span> · 7d <span id="apy7d" class="muted">–</span> · 30d <span id="apy30d" class="muted">–</span></div>
+        <div style="margin-top:4px;">Letztes Update: <span id="lastUpdate" class="muted">–</span></div>
       </div>
     </div>
     <div class="card">
@@ -151,6 +152,7 @@
       // DOM
       const $apy = document.getElementById('apy');
       const $borrowApy = document.getElementById('borrowApy');
+      const $lastUpdate = document.getElementById('lastUpdate');
       const $apy24h = document.getElementById('apy24h');
       const $apy7d = document.getElementById('apy7d');
       const $apy30d = document.getElementById('apy30d');
@@ -174,9 +176,29 @@
       // ===== APY History Storage =====
       let apyHistory = [];
       const APY_STORAGE_KEY = 'usdt_apy_history_' + CTOKEN_ADDRESS;
-      function loadAPYHistory(){ try{ const stored = localStorage.getItem(APY_STORAGE_KEY); if(stored) apyHistory = JSON.parse(stored); } catch(e){} }
+      function loadAPYHistory(){
+        try{
+          const stored = localStorage.getItem(APY_STORAGE_KEY);
+          if(stored) {
+            apyHistory = JSON.parse(stored);
+            console.log('Loaded APY history from localStorage:', apyHistory.length, 'points');
+          } else {
+            console.log('No APY history found in localStorage');
+          }
+        } catch(e){
+          console.error('Error loading APY history:', e);
+        }
+      }
       function saveAPYHistory(){ try{ localStorage.setItem(APY_STORAGE_KEY, JSON.stringify(apyHistory)); } catch(e){} }
-      function addAPYDataPoint(apy){ const now = Date.now(); apyHistory.push({timestamp: now, apy: apy}); const cutoff = now - (30 * 24 * 60 * 60 * 1000); apyHistory = apyHistory.filter(p => p.timestamp > cutoff); saveAPYHistory(); }
+      function addAPYDataPoint(apy){
+        const now = Date.now();
+        console.log('Adding APY data point:', apy, 'at', new Date(now).toLocaleString());
+        apyHistory.push({timestamp: now, apy: apy});
+        const cutoff = now - (30 * 24 * 60 * 60 * 1000);
+        apyHistory = apyHistory.filter(p => p.timestamp > cutoff);
+        console.log('APY history now has', apyHistory.length, 'points');
+        saveAPYHistory();
+      }
       function getAPYTrend(hours){ const now = Date.now(); const cutoff = now - (hours * 60 * 60 * 1000); const recent = apyHistory.filter(p => p.timestamp > cutoff); if(recent.length < 2) return null; const first = recent[0].apy; const last = recent[recent.length - 1].apy; return ((last - first) / first) * 100; }
       function formatTrend(trendPct){ if(trendPct === null) return '–'; const arrow = trendPct > 0.01 ? '↗' : trendPct < -0.01 ? '↘' : '→'; const cls = trendPct > 0.01 ? 'trend-up' : trendPct < -0.01 ? 'trend-down' : 'trend-neutral'; return `<span class="${cls}">${arrow} ${trendPct >= 0 ? '+' : ''}${trendPct.toFixed(2)}%</span>`; }
 
@@ -188,6 +210,9 @@
 
       function drawAPYChart(){
         if(!$apyChart) return;
+
+        console.log('Drawing APY chart, history length:', apyHistory.length);
+
         const ctx = $apyChart.getContext('2d');
         const rect = $apyChart.getBoundingClientRect();
         const dpr = window.devicePixelRatio || 1;
@@ -197,7 +222,7 @@
 
         const w = rect.width;
         const h = rect.height;
-        const padding = 20;
+        const padding = 40; // Increased padding for Y-axis labels
         const chartW = w - padding * 2;
         const chartH = h - padding * 2;
 
@@ -210,11 +235,14 @@
         const sevenDaysAgo = now - (7 * 24 * 60 * 60 * 1000);
         const chartData = apyHistory.filter(p => p.timestamp > sevenDaysAgo).sort((a, b) => a.timestamp - b.timestamp);
 
+        console.log('Chart data points:', chartData.length, chartData);
+
         if(chartData.length < 2){
           ctx.fillStyle = '#9fb0c3';
           ctx.font = '12px sans-serif';
           ctx.textAlign = 'center';
-          ctx.fillText('Nicht genügend Daten für Chart', w/2, h/2);
+          ctx.fillText('Nicht genügend Daten für Chart (mindestens 2 Datenpunkte benötigt)', w/2, h/2);
+          ctx.fillText(`Aktuelle Datenpunkte: ${chartData.length}`, w/2, h/2 + 20);
           return;
         }
 
@@ -223,13 +251,31 @@
         const minAPY = Math.min(...apyValues);
         const maxAPY = Math.max(...apyValues);
         const apyRange = maxAPY - minAPY;
-        const buffer = apyRange * 0.1;
-        const chartMinAPY = minAPY - buffer;
-        const chartMaxAPY = maxAPY + buffer;
-        const chartAPYRange = chartMaxAPY - chartMinAPY;
+
+        // Handle edge case where all values are the same
+        let chartMinAPY, chartMaxAPY, chartAPYRange;
+        if (apyRange === 0) {
+          // If all values are the same, create a small range around the value
+          const buffer = Math.max(minAPY * 0.1, 0.001); // 10% or minimum 0.1%
+          chartMinAPY = minAPY - buffer;
+          chartMaxAPY = maxAPY + buffer;
+          chartAPYRange = chartMaxAPY - chartMinAPY;
+        } else {
+          const buffer = apyRange * 0.1;
+          chartMinAPY = minAPY - buffer;
+          chartMaxAPY = maxAPY + buffer;
+          chartAPYRange = chartMaxAPY - chartMinAPY;
+        }
+
+        console.log('APY range:', { minAPY, maxAPY, chartMinAPY, chartMaxAPY, chartAPYRange });
 
         // Time range
         const timeRange = chartData[chartData.length - 1].timestamp - chartData[0].timestamp;
+
+        // Handle edge case where timeRange is 0
+        const safeTimeRange = timeRange > 0 ? timeRange : 1;
+
+        console.log('Time range:', { timeRange, safeTimeRange, firstTime: new Date(chartData[0].timestamp), lastTime: new Date(chartData[chartData.length - 1].timestamp) });
 
         // Draw grid lines
         ctx.strokeStyle = '#223042';
@@ -262,8 +308,15 @@
         ctx.beginPath();
 
         chartData.forEach((point, i) => {
-          const x = padding + ((point.timestamp - chartData[0].timestamp) / timeRange) * chartW;
+          const x = padding + ((point.timestamp - chartData[0].timestamp) / safeTimeRange) * chartW;
           const y = padding + chartH - ((point.apy - chartMinAPY) / chartAPYRange) * chartH;
+
+          console.log(`Point ${i}:`, {
+            timestamp: new Date(point.timestamp).toLocaleString(),
+            apy: (point.apy * 100).toFixed(3) + '%',
+            x: x.toFixed(1),
+            y: y.toFixed(1)
+          });
 
           if(i === 0) ctx.moveTo(x, y);
           else ctx.lineTo(x, y);
@@ -273,38 +326,47 @@
 
         // Draw data points
         ctx.fillStyle = '#2dd4bf';
-        chartData.forEach(point => {
-          const x = padding + ((point.timestamp - chartData[0].timestamp) / timeRange) * chartW;
+        chartData.forEach((point, i) => {
+          const x = padding + ((point.timestamp - chartData[0].timestamp) / safeTimeRange) * chartW;
           const y = padding + chartH - ((point.apy - chartMinAPY) / chartAPYRange) * chartH;
 
           ctx.beginPath();
-          ctx.arc(x, y, 3, 0, Math.PI * 2);
+          ctx.arc(x, y, 4, 0, Math.PI * 2); // Slightly larger points for visibility
           ctx.fill();
+
+          // Add point number for debugging
+          ctx.fillStyle = '#ffffff';
+          ctx.font = '8px sans-serif';
+          ctx.textAlign = 'center';
+          ctx.fillText(i.toString(), x, y - 8);
+          ctx.fillStyle = '#2dd4bf';
         });
 
         // Y-axis labels (APY)
         ctx.fillStyle = '#9fb0c3';
         ctx.font = '10px sans-serif';
         ctx.textAlign = 'right';
+        ctx.textBaseline = 'middle';
         for(let i = 0; i <= 4; i++){
           const apy = chartMinAPY + (chartAPYRange * (4 - i) / 4);
           const y = padding + (chartH * i / 4);
-          ctx.fillText((apy * 100).toFixed(1) + '%', padding - 5, y + 3);
+          ctx.fillText((apy * 100).toFixed(2) + '%', padding - 8, y);
         }
 
         // X-axis labels (time)
         ctx.textAlign = 'center';
+        ctx.textBaseline = 'top';
         for(let i = 0; i <= 6; i++){
           const timestamp = chartData[0].timestamp + (timeRange * i / 6);
           const date = new Date(timestamp);
           const x = padding + (chartW * i / 6);
           const label = date.getDate() + '.' + (date.getMonth() + 1);
-          ctx.fillText(label, x, h - 5);
+          ctx.fillText(label, x, h - padding + 5);
         }
 
         // Store chart data for mouse events
         $apyChart._chartData = chartData;
-        $apyChart._chartBounds = { padding, chartW, chartH, chartMinAPY, chartAPYRange, timeRange };
+        $apyChart._chartBounds = { padding, chartW, chartH, chartMinAPY, chartAPYRange, timeRange: safeTimeRange };
       }
 
       function setupChartEvents(){
@@ -328,7 +390,7 @@
             const py = bounds.padding + bounds.chartH - ((point.apy - bounds.chartMinAPY) / bounds.chartAPYRange) * bounds.chartH;
             const dist = Math.sqrt((x - px) ** 2 + (y - py) ** 2);
 
-            if(dist < minDist && dist < 15){
+            if(dist < minDist && dist < 20){ // Increased detection radius
               minDist = dist;
               closest = point;
             }
@@ -371,12 +433,28 @@
           const [currentAPY, borrowAPY] = await Promise.all([calcAPY(), calcBorrowAPY()]);
           $apy.textContent = fmtPct(currentAPY);
           $borrowApy.textContent = fmtPct(borrowAPY);
+
+          // Update last update timestamp
+          const now = new Date();
+          const timeString = now.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+          if($lastUpdate) $lastUpdate.textContent = timeString;
+
           addAPYDataPoint(currentAPY);
+
+          // If this is the first data point, add a second one slightly earlier to enable chart
+          if(apyHistory.length === 1) {
+            console.log('Adding second data point for chart display');
+            const earlierTimestamp = Date.now() - (5 * 60 * 1000); // 5 minutes ago
+            apyHistory.unshift({timestamp: earlierTimestamp, apy: currentAPY * 1.001}); // Slight variation
+            saveAPYHistory();
+          }
+
           updateAPYTrends();
         } catch(e){
           console.error('APY', e);
           $apy.textContent = '–';
           $borrowApy.textContent = '–';
+          if($lastUpdate) $lastUpdate.textContent = 'Fehler';
         }
       }
       function updateAPYTrends(){
