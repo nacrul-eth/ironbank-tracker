@@ -1,0 +1,488 @@
+<html lang="de">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>USDT Supply Dashboard</title>
+  <style>
+    :root { --bg:#0b0f14; --fg:#e6eef7; --muted:#9fb0c3; --card:#111722; --acc:#2dd4bf; --err:#ef4444; }
+    * { box-sizing: border-box; }
+    body { margin:0; font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, "Helvetica Neue", Arial; background:var(--bg); color:var(--fg); }
+    header { display:flex; align-items:center; justify-content:space-between; padding:16px 20px; border-bottom:1px solid #223042; position:sticky; top:0; background:rgba(11,15,20,0.9); backdrop-filter:saturate(140%) blur(6px); }
+    h1 { font-size:18px; margin:0; color:#dbe7f3; }
+    .tag { font-size:12px; color:var(--muted); }
+    .row { display:flex; gap:16px; flex-wrap:wrap; padding:20px; }
+    .card { background:var(--card); border:1px solid #1c2533; border-radius:16px; padding:16px; min-width:260px; flex:1; box-shadow:0 2px 18px rgba(0,0,0,0.25); }
+    .card h2 { margin:0 0 8px 0; font-size:16px; color:#eaf2fb; }
+    .value { font-size:28px; font-weight:700; }
+    .muted { color:var(--muted); font-size:12px; }
+    .grid { display:grid; grid-template-columns: 1fr 1fr; gap:12px; }
+    .controls { display:flex; gap:8px; align-items:center; }
+    input[type="text"] { width:100%; padding:10px 12px; border-radius:12px; border:1px solid #263243; background:#0e141d; color:#dfe9f7; outline:none; }
+    button { padding:10px 12px; border-radius:12px; border:1px solid #29455a; background:#132333; color:#e7f3ff; cursor:pointer; }
+    button.primary { background:var(--acc); color:#07343b; border-color:#34d4c3; font-weight:700; }
+    button.danger { background:#2b1620; border-color:#5c203b; color:#ffdce5; }
+    button:disabled { opacity:0.55; cursor:not-allowed; }
+    .status { padding:10px 12px; border-radius:12px; border:1px solid #223042; background:#0f1621; font-size:13px; }
+    .err { color:#fecaca; }
+    a { color:#7dd3fc; text-decoration:none; }
+    .small { font-size:12px; }
+    footer { padding:16px 20px; color:var(--muted); }
+    .row.compact { padding-top:0; }
+    .trend-up { color:#10b981; }
+    .trend-down { color:#ef4444; }
+    .trend-neutral { color:var(--muted); }
+  .alert { color:#fca5a5; text-shadow:0 0 10px rgba(239,68,68,.9); animation:pulse 1.2s ease-in-out infinite; }
+    @keyframes pulse { 0%{ opacity:1 } 50%{ opacity:.6 } 100%{ opacity:1 } }
+    body.alarm { animation:bgflash 0.8s steps(2,end) infinite; }
+    @keyframes bgflash { 0%{ background:#0b0f14; } 50%{ background:#3b0b12; } 100%{ background:#0b0f14; } }
+  </style>
+</head>
+<body>
+  <header>
+    <div>
+      <h1>USDT Supply Dashboard</h1>
+      <div class="tag">Contract: <code id="caddr">0x48759f220ed983db51fa7a8c0d2aab8f3ce4166a</code> · Ethereum Mainnet</div>
+    </div>
+  </header>
+
+  <div class="row">
+    <div class="card">
+      <h2>Supply APY</h2>
+      <div class="value" id="apy">–</div>
+      <div class="muted">Aktualisierung alle <span id="pollms">180</span> s · Quelle: supplyRatePerBlock</div>
+      <div class="small" style="margin-top:8px;">
+        <div>Trends: 24h <span id="apy24h" class="muted">–</span> · 7d <span id="apy7d" class="muted">–</span> · 30d <span id="apy30d" class="muted">–</span></div>
+      </div>
+    </div>
+    <div class="card">
+      <h2>Borrow APY</h2>
+      <div class="value" id="borrowApy">–</div>
+      <div class="muted">Zinssatz für Kredite · Quelle: borrowRatePerBlock</div>
+    </div>
+    <div class="card" style="flex:2;">
+      <h2>APY Verlauf</h2>
+      <div style="position:relative; height:180px; margin-top:8px;">
+        <canvas id="apyChart" width="400" height="160" style="width:100%; height:160px; border:1px solid #1c2533; border-radius:8px; background:#0e141d;"></canvas>
+        <div class="small muted" style="margin-top:4px;">Letzte 7 Tage · Hover für Details</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="row compact">
+    <div class="card">
+      <h2>Pool Information</h2>
+      <div class="value" id="poolSupply">–</div>
+      <div class="muted">Total Supply (Mio USDT)</div>
+      <div style="margin-top:12px;">
+        <div class="small">Cash: <span id="poolCash">–</span> Mio USDT</div>
+        <div class="small">Borrows: <span id="poolBorrows">–</span> Mio USDT</div>
+      </div>
+    </div>
+    <div class="card">
+      <h2>Pool Metrics</h2>
+      <div class="grid">
+        <div>
+          <div class="small muted">Utilization</div>
+          <div id="utilization">–</div>
+        </div>
+        <div>
+          <div class="small muted">Reserves</div>
+          <div id="poolReserves">–</div>
+        </div>
+      </div>
+    </div>
+    <div class="card">
+      <h2>Contract Details</h2>
+      <div class="small">
+        <div>Exchange Rate: <span id="exchangeRate">–</span></div>
+        <div>Reserve Factor: <span id="reserveFactor">–</span>%</div>
+        <div style="margin-top:4px;">Underlying: <span id="underlying">0xdAC17F958D2ee523a2206206994597C13D831ec7</span></div>
+        <div>Decimals: USDT <span id="udec">6</span> · cToken <span id="cdec">8</span></div>
+      </div>
+    </div>
+  </div>
+
+  <footer>
+    <div class="small">Nur-Lese Dashboard. Verwendet öffentliche RPC Endpoints. Keine Wallet-Verbindung erforderlich.</div>
+  </footer>
+
+  <script src="https://cdn.jsdelivr.net/npm/ethers@6/dist/ethers.umd.min.js"></script>
+  <script>
+    (async function(){
+      'use strict';
+      const CTOKEN_ADDRESS = '0x48759f220ed983db51fa7a8c0d2aab8f3ce4166a';
+      const BLOCKS_PER_YEAR = 2628000;
+      const POLL_MS = 180000; // 3 Minuten
+
+      // Minimal-ABIs
+      const C_ABI = [
+        { name:'supplyRatePerBlock', inputs:[], outputs:[{type:'uint256'}], stateMutability:'view', type:'function' },
+        { name:'borrowRatePerBlock', inputs:[], outputs:[{type:'uint256'}], stateMutability:'view', type:'function' },
+        { name:'getCash', inputs:[], outputs:[{type:'uint256'}], stateMutability:'view', type:'function' },
+        { name:'totalBorrowsCurrent', inputs:[], outputs:[{type:'uint256'}], stateMutability:'nonpayable', type:'function' },
+        { name:'totalBorrows', inputs:[], outputs:[{type:'uint256'}], stateMutability:'view', type:'function' },
+        { name:'totalReserves', inputs:[], outputs:[{type:'uint256'}], stateMutability:'view', type:'function' },
+        { name:'reserveFactorMantissa', inputs:[], outputs:[{type:'uint256'}], stateMutability:'view', type:'function' },
+        { name:'exchangeRateStored', inputs:[], outputs:[{type:'uint256'}], stateMutability:'view', type:'function' },
+        { name:'exchangeRateCurrent', inputs:[], outputs:[{type:'uint256'}], stateMutability:'nonpayable', type:'function' },
+        { name:'totalSupply', inputs:[], outputs:[{type:'uint256'}], stateMutability:'view', type:'function' },
+        { name:'underlying', inputs:[], outputs:[{type:'address'}], stateMutability:'view', type:'function' },
+        { name:'decimals', inputs:[], outputs:[{type:'uint8'}], stateMutability:'view', type:'function' },
+        { name:'balanceOf', inputs:[{name:'owner',type:'address'}], outputs:[{type:'uint256'}], stateMutability:'view', type:'function' },
+        { name:'mint', inputs:[{name:'mintAmount',type:'uint256'}], outputs:[{type:'uint256'}], stateMutability:'nonpayable', type:'function' },
+        { name:'redeemUnderlying', inputs:[{name:'redeemAmount',type:'uint256'}], outputs:[{type:'uint256'}], stateMutability:'nonpayable', type:'function' },
+        { name:'redeem', inputs:[{name:'redeemTokens',type:'uint256'}], outputs:[{type:'uint256'}], stateMutability:'nonpayable', type:'function' }
+      ];
+      const ERC20_ABI = [
+        { name:'decimals', inputs:[], outputs:[{type:'uint8'}], stateMutability:'view', type:'function' },
+        { name:'balanceOf', inputs:[{name:'owner',type:'address'}], outputs:[{type:'uint256'}], stateMutability:'view', type:'function' },
+        { name:'allowance', inputs:[{name:'owner',type:'address'},{name:'spender',type:'address'}], outputs:[{type:'uint256'}], stateMutability:'view', type:'function' },
+        { name:'approve', inputs:[{name:'spender',type:'address'},{name:'amount',type:'uint256'}], outputs:[{type:'bool'}], stateMutability:'nonpayable', type:'function' }
+      ];
+
+      const RPCS = [
+        'https://eth.llamarpc.com',
+        'https://cloudflare-eth.com',
+        'https://ethereum.publicnode.com',
+        'https://rpc.ankr.com/eth',
+        'https://rpc.flashbots.net'
+      ];
+
+      // DOM
+      const $apy = document.getElementById('apy');
+      const $borrowApy = document.getElementById('borrowApy');
+      const $apy24h = document.getElementById('apy24h');
+      const $apy7d = document.getElementById('apy7d');
+      const $apy30d = document.getElementById('apy30d');
+      const $apyChart = document.getElementById('apyChart');
+      const $pollms = document.getElementById('pollms');
+      const $underlying = document.getElementById('underlying');
+      const $udec = document.getElementById('udec');
+      const $cdec = document.getElementById('cdec');
+      const $poolSupply = document.getElementById('poolSupply');
+      const $poolCash = document.getElementById('poolCash');
+      const $poolBorrows = document.getElementById('poolBorrows');
+      const $poolReserves = document.getElementById('poolReserves');
+      const $utilization = document.getElementById('utilization');
+      const $reserveFactor = document.getElementById('reserveFactor');
+      const $exchangeRate = document.getElementById('exchangeRate');
+
+      // State
+      let readProvider, cTokenRead;
+      let uDec = 6, cDec = 8;
+      let underlyingAddr = '0xdAC17F958D2ee523a2206206994597C13D831ec7'; // USDT
+      // ===== APY History Storage =====
+      let apyHistory = [];
+      const APY_STORAGE_KEY = 'usdt_apy_history_' + CTOKEN_ADDRESS;
+      function loadAPYHistory(){ try{ const stored = localStorage.getItem(APY_STORAGE_KEY); if(stored) apyHistory = JSON.parse(stored); } catch(e){} }
+      function saveAPYHistory(){ try{ localStorage.setItem(APY_STORAGE_KEY, JSON.stringify(apyHistory)); } catch(e){} }
+      function addAPYDataPoint(apy){ const now = Date.now(); apyHistory.push({timestamp: now, apy: apy}); const cutoff = now - (30 * 24 * 60 * 60 * 1000); apyHistory = apyHistory.filter(p => p.timestamp > cutoff); saveAPYHistory(); }
+      function getAPYTrend(hours){ const now = Date.now(); const cutoff = now - (hours * 60 * 60 * 1000); const recent = apyHistory.filter(p => p.timestamp > cutoff); if(recent.length < 2) return null; const first = recent[0].apy; const last = recent[recent.length - 1].apy; return ((last - first) / first) * 100; }
+      function formatTrend(trendPct){ if(trendPct === null) return '–'; const arrow = trendPct > 0.01 ? '↗' : trendPct < -0.01 ? '↘' : '→'; const cls = trendPct > 0.01 ? 'trend-up' : trendPct < -0.01 ? 'trend-down' : 'trend-neutral'; return `<span class="${cls}">${arrow} ${trendPct >= 0 ? '+' : ''}${trendPct.toFixed(2)}%</span>`; }
+
+      // ===== APY Chart =====
+      let chartTooltip = null;
+      function createTooltip(){ if(chartTooltip) return chartTooltip; chartTooltip = document.createElement('div'); chartTooltip.style.cssText = 'position:absolute; background:#111722; border:1px solid #1c2533; border-radius:8px; padding:8px 12px; font-size:12px; color:#e6eef7; pointer-events:none; z-index:1000; display:none;'; document.body.appendChild(chartTooltip); return chartTooltip; }
+      function showTooltip(x, y, text){ const tooltip = createTooltip(); tooltip.textContent = text; tooltip.style.display = 'block'; tooltip.style.left = (x + 10) + 'px'; tooltip.style.top = (y - 30) + 'px'; }
+      function hideTooltip(){ if(chartTooltip) chartTooltip.style.display = 'none'; }
+
+      function drawAPYChart(){
+        if(!$apyChart) return;
+        const ctx = $apyChart.getContext('2d');
+        const rect = $apyChart.getBoundingClientRect();
+        const dpr = window.devicePixelRatio || 1;
+        $apyChart.width = rect.width * dpr;
+        $apyChart.height = rect.height * dpr;
+        ctx.scale(dpr, dpr);
+
+        const w = rect.width;
+        const h = rect.height;
+        const padding = 20;
+        const chartW = w - padding * 2;
+        const chartH = h - padding * 2;
+
+        // Clear
+        ctx.fillStyle = '#0e141d';
+        ctx.fillRect(0, 0, w, h);
+
+        // Get last 7 days of data
+        const now = Date.now();
+        const sevenDaysAgo = now - (7 * 24 * 60 * 60 * 1000);
+        const chartData = apyHistory.filter(p => p.timestamp > sevenDaysAgo).sort((a, b) => a.timestamp - b.timestamp);
+
+        if(chartData.length < 2){
+          ctx.fillStyle = '#9fb0c3';
+          ctx.font = '12px sans-serif';
+          ctx.textAlign = 'center';
+          ctx.fillText('Nicht genügend Daten für Chart', w/2, h/2);
+          return;
+        }
+
+        // Find min/max APY for scaling
+        const apyValues = chartData.map(d => d.apy);
+        const minAPY = Math.min(...apyValues);
+        const maxAPY = Math.max(...apyValues);
+        const apyRange = maxAPY - minAPY;
+        const buffer = apyRange * 0.1;
+        const chartMinAPY = minAPY - buffer;
+        const chartMaxAPY = maxAPY + buffer;
+        const chartAPYRange = chartMaxAPY - chartMinAPY;
+
+        // Time range
+        const timeRange = chartData[chartData.length - 1].timestamp - chartData[0].timestamp;
+
+        // Draw grid lines
+        ctx.strokeStyle = '#223042';
+        ctx.lineWidth = 1;
+        ctx.setLineDash([2, 2]);
+
+        // Horizontal grid (APY levels)
+        for(let i = 0; i <= 4; i++){
+          const y = padding + (chartH * i / 4);
+          ctx.beginPath();
+          ctx.moveTo(padding, y);
+          ctx.lineTo(padding + chartW, y);
+          ctx.stroke();
+        }
+
+        // Vertical grid (time)
+        for(let i = 0; i <= 6; i++){
+          const x = padding + (chartW * i / 6);
+          ctx.beginPath();
+          ctx.moveTo(x, padding);
+          ctx.lineTo(x, padding + chartH);
+          ctx.stroke();
+        }
+
+        ctx.setLineDash([]);
+
+        // Draw APY line
+        ctx.strokeStyle = '#2dd4bf';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+
+        chartData.forEach((point, i) => {
+          const x = padding + ((point.timestamp - chartData[0].timestamp) / timeRange) * chartW;
+          const y = padding + chartH - ((point.apy - chartMinAPY) / chartAPYRange) * chartH;
+
+          if(i === 0) ctx.moveTo(x, y);
+          else ctx.lineTo(x, y);
+        });
+
+        ctx.stroke();
+
+        // Draw data points
+        ctx.fillStyle = '#2dd4bf';
+        chartData.forEach(point => {
+          const x = padding + ((point.timestamp - chartData[0].timestamp) / timeRange) * chartW;
+          const y = padding + chartH - ((point.apy - chartMinAPY) / chartAPYRange) * chartH;
+
+          ctx.beginPath();
+          ctx.arc(x, y, 3, 0, Math.PI * 2);
+          ctx.fill();
+        });
+
+        // Y-axis labels (APY)
+        ctx.fillStyle = '#9fb0c3';
+        ctx.font = '10px sans-serif';
+        ctx.textAlign = 'right';
+        for(let i = 0; i <= 4; i++){
+          const apy = chartMinAPY + (chartAPYRange * (4 - i) / 4);
+          const y = padding + (chartH * i / 4);
+          ctx.fillText((apy * 100).toFixed(1) + '%', padding - 5, y + 3);
+        }
+
+        // X-axis labels (time)
+        ctx.textAlign = 'center';
+        for(let i = 0; i <= 6; i++){
+          const timestamp = chartData[0].timestamp + (timeRange * i / 6);
+          const date = new Date(timestamp);
+          const x = padding + (chartW * i / 6);
+          const label = date.getDate() + '.' + (date.getMonth() + 1);
+          ctx.fillText(label, x, h - 5);
+        }
+
+        // Store chart data for mouse events
+        $apyChart._chartData = chartData;
+        $apyChart._chartBounds = { padding, chartW, chartH, chartMinAPY, chartAPYRange, timeRange };
+      }
+
+      function setupChartEvents(){
+        if(!$apyChart) return;
+
+        $apyChart.addEventListener('mousemove', (e) => {
+          const rect = $apyChart.getBoundingClientRect();
+          const x = e.clientX - rect.left;
+          const y = e.clientY - rect.top;
+
+          const data = $apyChart._chartData;
+          const bounds = $apyChart._chartBounds;
+          if(!data || !bounds) return;
+
+          // Find closest data point
+          let closest = null;
+          let minDist = Infinity;
+
+          data.forEach(point => {
+            const px = bounds.padding + ((point.timestamp - data[0].timestamp) / bounds.timeRange) * bounds.chartW;
+            const py = bounds.padding + bounds.chartH - ((point.apy - bounds.chartMinAPY) / bounds.chartAPYRange) * bounds.chartH;
+            const dist = Math.sqrt((x - px) ** 2 + (y - py) ** 2);
+
+            if(dist < minDist && dist < 15){
+              minDist = dist;
+              closest = point;
+            }
+          });
+
+          if(closest){
+            const date = new Date(closest.timestamp);
+            const timeStr = date.toLocaleDateString('de-DE') + ' ' + date.toLocaleTimeString('de-DE', {hour: '2-digit', minute: '2-digit'});
+            const apyStr = (closest.apy * 100).toFixed(3) + '%';
+            showTooltip(e.clientX, e.clientY, `${timeStr}: ${apyStr}`);
+          } else {
+            hideTooltip();
+          }
+        });
+
+        $apyChart.addEventListener('mouseleave', hideTooltip);
+      }
+      // ===== Alarm State & Audio =====
+      // Removed - no longer needed without wallet connection
+
+      // Utils
+      function fmtPct(x){ return new Intl.NumberFormat('de-DE', { style:'percent', minimumFractionDigits:2, maximumFractionDigits:2 }).format(x); }
+      function nf(dec=6){ return new Intl.NumberFormat('de-DE', { maximumFractionDigits: dec }); }
+      function short(addr){ return addr ? addr.slice(0,6)+'…'+addr.slice(-4) : '–'; }
+      function bi(x){ return (typeof x === 'bigint') ? x : BigInt(x); }
+      function scheduleRefresh(ms=15000){ setTimeout(()=>{ refreshPool().catch(()=>{}); }, ms); }
+
+      async function getReadProvider(){
+        for (const url of RPCS){
+          try{ const p = new ethers.JsonRpcProvider(url); const net = await p.getNetwork(); if (Number(net.chainId) !== 1) continue; await p.getBlockNumber(); return p; }catch(e){}
+        }
+        throw new Error('Kein öffentlicher Mainnet-RPC erreichbar');
+      }
+      async function ensureRead(){ if (!readProvider){ readProvider = await getReadProvider(); cTokenRead = new ethers.Contract(CTOKEN_ADDRESS, C_ABI, readProvider); } }
+
+      async function calcAPY(){ await ensureRead(); const srpb = await cTokenRead.supplyRatePerBlock(); const r = Number(ethers.formatUnits(srpb, 18)); return Math.pow(1 + r, BLOCKS_PER_YEAR) - 1; }
+      async function calcBorrowAPY(){ await ensureRead(); const brpb = await cTokenRead.borrowRatePerBlock(); const r = Number(ethers.formatUnits(brpb, 18)); return Math.pow(1 + r, BLOCKS_PER_YEAR) - 1; }
+      async function refreshAPY(){
+        try{
+          const [currentAPY, borrowAPY] = await Promise.all([calcAPY(), calcBorrowAPY()]);
+          $apy.textContent = fmtPct(currentAPY);
+          $borrowApy.textContent = fmtPct(borrowAPY);
+          addAPYDataPoint(currentAPY);
+          updateAPYTrends();
+        } catch(e){
+          console.error('APY', e);
+          $apy.textContent = '–';
+          $borrowApy.textContent = '–';
+        }
+      }
+      function updateAPYTrends(){
+        const trend24h = getAPYTrend(24);
+        const trend7d = getAPYTrend(24 * 7);
+        const trend30d = getAPYTrend(24 * 30);
+        if($apy24h) $apy24h.innerHTML = formatTrend(trend24h);
+        if($apy7d) $apy7d.innerHTML = formatTrend(trend7d);
+        if($apy30d) $apy30d.innerHTML = formatTrend(trend30d);
+        drawAPYChart();
+      }
+
+      async function refreshPool(){
+        try{
+          await ensureRead();
+          const cRead = new ethers.Contract(CTOKEN_ADDRESS, C_ABI, readProvider);
+
+          // Use static calls for view functions and call() for non-payable functions
+          const [cash, exRate, cTot, totalReserves, reserveFactor] = await Promise.all([
+            cRead.getCash(),
+            cRead.exchangeRateStored(),
+            cRead.totalSupply(),
+            cRead.totalReserves(),
+            cRead.reserveFactorMantissa()
+          ]);
+
+          // Get total borrows separately using the stored version (view function)
+          let totalBorrows;
+          try {
+            totalBorrows = await cRead.totalBorrows();
+          } catch (e) {
+            // Fallback: if totalBorrows view function doesn't exist, try the current version with call()
+            console.log('Using totalBorrowsCurrent with call()');
+            totalBorrows = await cRead.totalBorrowsCurrent.staticCall();
+          }
+
+          const dec = (typeof uDec === 'number' && uDec>0) ? uDec : 6;
+          const scale = 10n ** 18n;
+          const totalUnderlying = (bi(cTot) * bi(exRate)) / scale;
+
+          // Convert to millions for display
+          const cashM = Number(ethers.formatUnits(cash, dec)) / 1_000_000;
+          const supplyM = Number(ethers.formatUnits(totalUnderlying, dec)) / 1_000_000;
+          const borrowsM = Number(ethers.formatUnits(totalBorrows, dec)) / 1_000_000;
+          const reservesM = Number(ethers.formatUnits(totalReserves, dec)) / 1_000_000;
+
+          // Calculate utilization rate
+          const totalLiquidity = Number(ethers.formatUnits(cash, dec)) + Number(ethers.formatUnits(totalBorrows, dec));
+          const utilizationRate = totalLiquidity > 0 ? (Number(ethers.formatUnits(totalBorrows, dec)) / totalLiquidity) * 100 : 0;
+
+          // Exchange rate (how many underlying tokens per cToken)
+          const exchRate = Number(ethers.formatUnits(exRate, 18));
+
+          // Reserve factor percentage
+          const reserveFactorPct = Number(ethers.formatUnits(reserveFactor, 18)) * 100;
+
+          // Format text
+          const cashTxt = nf(2).format(cashM);
+          const supTxt = nf(2).format(supplyM);
+          const borrowsTxt = nf(2).format(borrowsM);
+          const reservesTxt = nf(2).format(reservesM) + ' Mio';
+          const utilizationTxt = utilizationRate.toFixed(1) + '%';
+          const exchangeRateTxt = exchRate.toFixed(6);
+          const reserveFactorTxt = reserveFactorPct.toFixed(1);
+
+          console.log('Pool data loaded:', { cashTxt, supTxt, borrowsTxt, utilizationTxt });
+
+          // Update pool displays
+          if($poolSupply) $poolSupply.textContent = supTxt;
+          if($poolCash) $poolCash.textContent = cashTxt;
+          if($poolBorrows) $poolBorrows.textContent = borrowsTxt;
+          if($poolReserves) $poolReserves.textContent = reservesTxt;
+          if($utilization) $utilization.textContent = utilizationTxt;
+          if($exchangeRate) $exchangeRate.textContent = exchangeRateTxt;
+          if($reserveFactor) $reserveFactor.textContent = reserveFactorTxt;
+
+          // Update contract info
+          if($underlying) $underlying.textContent = underlyingAddr;
+          if($udec) $udec.textContent = String(uDec);
+          if($cdec) $cdec.textContent = String(cDec);
+        } catch(e){
+          console.error('Pool refresh error:', e);
+          if($poolSupply) $poolSupply.textContent = '–';
+          if($poolCash) $poolCash.textContent = '–';
+          if($poolBorrows) $poolBorrows.textContent = '–';
+          if($poolReserves) $poolReserves.textContent = '–';
+          if($utilization) $utilization.textContent = '–';
+          if($exchangeRate) $exchangeRate.textContent = '–';
+          if($reserveFactor) $reserveFactor.textContent = '–';
+        }
+      }
+
+      // Boot
+      loadAPYHistory();
+      setupChartEvents();
+      document.addEventListener('click', function once(){ try{ if('Notification' in window && Notification.permission==='default'){ Notification.requestPermission().catch(()=>{}); } }catch(e){} document.removeEventListener('click', once); }, { once:true });
+
+      if (location.protocol === 'file:') { const fh = document.getElementById('fileHint'); if (fh) fh.style.display = 'flex'; }
+      if ($pollms) { $pollms.textContent = String(Math.round(POLL_MS/1000)); }
+      setInterval(refreshAPY, POLL_MS);
+      setInterval(refreshPool, POLL_MS);
+      await refreshAPY();
+      await refreshPool();
+      updateAPYTrends();
+      window.addEventListener('resize', () => setTimeout(drawAPYChart, 100));
+    })();
+  </script>
+</body>
+</html>
